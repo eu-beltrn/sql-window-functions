@@ -6,7 +6,7 @@ select
     fecha_venta,
     total_venta,
     venta_anterior,
-    (total_venta - venta_anterior) as dif_venta
+    (total_venta - venta_anterior) as dif_anterior
 from (
     select
         e.nombre_empleado as vendedor,
