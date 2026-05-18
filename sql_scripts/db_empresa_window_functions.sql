@@ -1,62 +1,96 @@
-CREATE DATABASE empresa_window_functions;
+-- 1. PREPARACIÓN DE LA BASE DE DATOS
+-- "CREATE DATABASE IF NOT EXISTS" asegura que no dé error si la base ya existe.
+-- "CHARACTER SET utf8mb4" le dice a la base de datos que acepte tildes, letras ñ, e incluso emojis sin que se rompa el texto.
+CREATE DATABASE IF NOT EXISTS empresa_window_functions
+CHARACTER SET utf8mb4 
+COLLATE utf8mb4_unicode_ci;
+
+-- Es para que use esta base de datos.
 USE empresa_window_functions;
 
+-- 2. IDEMPOTENCIA
+-- Se borran en orden inverso a cómo se crearon para que no exista problemas con las fk
+DROP TABLE IF EXISTS ventas;
+DROP TABLE IF EXISTS empleados;
+DROP TABLE IF EXISTS productos;
+DROP TABLE IF EXISTS sucursales;
+DROP TABLE IF EXISTS departamentos;
+
+-- 3. CREACIÓN DE TABLAS
+-- Se usa "ENGINE=InnoDB" en todas las tablas porque es el motor que soporta 
+-- las transacciones de seguridad y las relaciones entre tabla
+
+-- Evita que el campo no esté vacío con NOT NULL
 CREATE TABLE departamentos (
     id_departamento INT PRIMARY KEY,
-    nombre_departamento VARCHAR(100)
-);
+    nombre_departamento VARCHAR(100) NOT NULL
+) ENGINE=InnoDB;
+
 CREATE TABLE sucursales (
     id_sucursal INT PRIMARY KEY,
-    nombre_sucursal VARCHAR(100),
-    ciudad VARCHAR(100)
-);
+    nombre_sucursal VARCHAR(100) NOT NULL,
+    ciudad VARCHAR(100) NOT NULL
+) ENGINE=InnoDB;
+
 CREATE TABLE empleados (
     id_empleado INT PRIMARY KEY,
-    nombre_empleado VARCHAR(100),
-    puesto VARCHAR(100),
-    id_departamento INT,
-    id_sucursal INT,
-    salario DECIMAL(10,2),
-    fecha_ingreso DATE,
-    FOREIGN KEY (id_departamento) REFERENCES departamentos(id_departamento),
-    FOREIGN KEY (id_sucursal) REFERENCES sucursales(id_sucursal)
-);
+    nombre_empleado VARCHAR(100) NOT NULL,
+    puesto VARCHAR(100) NOT NULL,
+    id_departamento INT NOT NULL,
+    id_sucursal INT NOT NULL,
+    -- CHECK (salario >= 0) impide que por error se ingrese un salario negativo.
+    salario DECIMAL(10,2) NOT NULL CHECK (salario >= 0),
+    fecha_ingreso DATE NOT NULL,
+    
+    -- ON UPDATE CASCADE por si hay un cambio en un dato, se actualice en cascada junto con sus fk
+    FOREIGN KEY (id_departamento) REFERENCES departamentos(id_departamento) ON UPDATE CASCADE,
+    FOREIGN KEY (id_sucursal) REFERENCES sucursales(id_sucursal) ON UPDATE CASCADE
+) ENGINE=InnoDB;
+
 CREATE TABLE productos (
     id_producto INT PRIMARY KEY,
-    nombre_producto VARCHAR(100),
-    categoria VARCHAR(100),
-    precio_base DECIMAL(10,2)
-);
+    nombre_producto VARCHAR(100) NOT NULL,
+    categoria VARCHAR(100) NOT NULL,
+    -- los precios base no pueden ser un valor negativo.
+    precio_base DECIMAL(10,2) NOT NULL CHECK (precio_base >= 0)
+) ENGINE=InnoDB;
+
 CREATE TABLE ventas (
     id_venta INT PRIMARY KEY,
-    id_empleado INT,
-    id_producto INT,
-    id_sucursal INT,
-    fecha_venta DATE,
-    cantidad INT,
-    precio_unitario DECIMAL(10,2),
-    total_venta DECIMAL(10,2),
-    FOREIGN KEY (id_empleado) REFERENCES empleados(id_empleado),
-    FOREIGN KEY (id_producto) REFERENCES productos(id_producto),
-    FOREIGN KEY (id_sucursal) REFERENCES sucursales(id_sucursal)
-);
+    id_empleado INT NOT NULL,
+    id_producto INT NOT NULL,
+    id_sucursal INT NOT NULL,
+    fecha_venta DATE NOT NULL,
+    -- No se puede vender cantidad 0 o negativa, ni a precios negativos.
+    cantidad INT NOT NULL CHECK (cantidad > 0),
+    precio_unitario DECIMAL(10,2) NOT NULL CHECK (precio_unitario >= 0),
+    total_venta DECIMAL(10,2) NOT NULL CHECK (total_venta >= 0),
+    
+    FOREIGN KEY (id_empleado) REFERENCES empleados(id_empleado) ON UPDATE CASCADE,
+    FOREIGN KEY (id_producto) REFERENCES productos(id_producto) ON UPDATE CASCADE,
+    FOREIGN KEY (id_sucursal) REFERENCES sucursales(id_sucursal) ON UPDATE CASCADE
+) ENGINE=InnoDB;
 
--- inserts
-INSERT INTO departamentos VALUES
+-- 4. INSERTAR DATOS
+-- START TRANSACTION agrupa todas las inserciones que vienen a continuación en un solo bloque.
+-- Esto hace que el guardado sea rapido y seguro, permitiendo que no se guarde nada incompleto.
+START TRANSACTION;
+
+INSERT INTO departamentos (id_departamento, nombre_departamento) VALUES
 (1, 'Ventas'),
 (2, 'Recursos Humanos'),
 (3, 'Tecnologia'),
 (4, 'Finanzas'),
 (5, 'Marketing');
 
-INSERT INTO sucursales VALUES
+INSERT INTO sucursales (id_sucursal, nombre_sucursal, ciudad) VALUES
 (1, 'Sucursal Central', 'Guatemala'),
 (2, 'Sucursal Norte', 'Mixco'),
 (3, 'Sucursal Sur', 'Villa Nueva'),
 (4, 'Sucursal Oriente', 'Santa Catarina Pinula'),
 (5, 'Sucursal Occidente', 'Antigua Guatemala');
 
-INSERT INTO empleados VALUES
+INSERT INTO empleados (id_empleado, nombre_empleado, puesto, id_departamento, id_sucursal, salario, fecha_ingreso) VALUES
 (1, 'Empleado 1', 'Vendedor Senior', 1, 1, 5200, '2022-01-10'),
 (2, 'Empleado 2', 'Vendedor Junior', 1, 2, 4300, '2022-02-15'),
 (3, 'Empleado 3', 'Analista RH', 2, 3, 6100, '2021-03-12'),
@@ -108,7 +142,7 @@ INSERT INTO empleados VALUES
 (49, 'Empleado 49', 'Soporte Tecnico', 3, 4, 6250, '2021-09-23'),
 (50, 'Empleado 50', 'Contador', 4, 5, 7600, '2020-10-12');
 
-INSERT INTO productos VALUES
+INSERT INTO productos (id_producto, nombre_producto, categoria, precio_base) VALUES
 (1, 'Laptop Empresarial', 'Tecnologia', 6500),
 (2, 'Monitor LED', 'Tecnologia', 1600),
 (3, 'Teclado Inalambrico', 'Accesorios', 350),
@@ -120,7 +154,10 @@ INSERT INTO productos VALUES
 (9, 'Camara Seguridad', 'Seguridad', 950),
 (10, 'Biometrico Acceso', 'Seguridad', 2200);
 
--- 1. Primero defines la tabla y las columnas a insertar
+-- 5. GENERACIÓN MASIVA DE VENTAS
+-- Aumentamos el límite de repeticiones que puede hacer a 10000 para asegurarnos de que nos deje generar 1000 ventas de prueba sin interrumpirse.
+SET SESSION cte_max_recursion_depth = 10000;
+
 INSERT INTO ventas (
     id_venta,
     id_empleado,
@@ -131,7 +168,7 @@ INSERT INTO ventas (
     precio_unitario,
     total_venta
 )
--- 2. Luego colocas tu Common Table Expression (CTE)
+-- "WITH RECURSIVE" crea una lista temporal llamada "numeros" que empieza en el 1 y va sumando +1 hasta llegar a 1000.
 WITH RECURSIVE numeros AS (
     SELECT 1 AS n
     UNION ALL
@@ -139,13 +176,12 @@ WITH RECURSIVE numeros AS (
     FROM numeros
     WHERE n < 1000
 )
--- 3. Finalmente el SELECT
+-- Con la lista de 1000 números generada, usamos operaciones matemáticas con residuo (%) 
+-- y así simular qué empleado vendió, qué producto, a qué precio y la fecha, dándole variedad a los datos automáticamente.
 SELECT
     n AS id_venta,
     ((n * 7) % 50) + 1 AS id_empleado,
     ((n * 3) % 10) + 1 AS id_producto,
-    
-    -- Nota: Cambié el multiplicador aquí (ver Bonus Track abajo)
     ((n * 7) % 5) + 1 AS id_sucursal, 
     
     DATE_ADD('2024-01-01', INTERVAL n DAY) AS fecha_venta,
@@ -179,10 +215,21 @@ SELECT
     END AS total_venta
 FROM numeros;
 
+-- COMMIT le dice al motor de la base de datos que todo salió bien, y que ya puede escribir todo el paquete en el disco duro".
+COMMIT;
+
+-- 6. ÍNDICES
+-- Crear un índice permite que la base de datos encuentre ventas por fecha o empleados por departamento a una mayor velocidad, sin revisar fila por fila.
+CREATE INDEX idx_ventas_fecha ON ventas(fecha_venta);
+CREATE INDEX idx_empleados_departamento ON empleados(id_departamento);
+
+-- 7. CONSULTAS DE PRUEBA Y VERIFICACIÓN
+-- Esta consulta cuenta todas las filas creadas para asegurarnos de que la recursión hizo las 1000 ventas exitosamente.
 SELECT COUNT(*) AS total_registros
 FROM ventas;
 
--- consulta de prueba
+-- Esta es la consulta muestra datos en formato mucho mas detallado.
+-- Cruza la información de las diferentes tablas basándose en las llaves primarias y foráneas.
 SELECT
     v.id_venta,
     e.nombre_empleado,
@@ -193,19 +240,13 @@ SELECT
     v.cantidad,
     v.precio_unitario,
     v.total_venta
-
 FROM ventas v
-
-INNER JOIN empleados e
+INNER JOIN empleados e 
     ON v.id_empleado = e.id_empleado
-
-INNER JOIN departamentos d
+INNER JOIN departamentos d 
     ON e.id_departamento = d.id_departamento
-
-INNER JOIN sucursales s
+INNER JOIN sucursales s 
     ON v.id_sucursal = s.id_sucursal
-
-INNER JOIN productos p
+INNER JOIN productos p 
     ON v.id_producto = p.id_producto
-
 ORDER BY v.fecha_venta;
